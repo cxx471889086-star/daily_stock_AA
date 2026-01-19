@@ -118,9 +118,17 @@ class NotificationService:
         检测所有已配置的渠道，推送时会向所有渠道发送
         """
         config = get_config()
-        
-        # 各渠道的 Webhook URL
-        self._wechat_url = config.wechat_webhook_url
+
+        # 合并企业微信所有 Webhook URLs（单个 + 多个，去重）
+        wechat_urls = []
+        if config.wechat_webhook_url:
+            wechat_urls.append(config.wechat_webhook_url)
+        if hasattr(config, 'wechat_webhook_urls') and config.wechat_webhook_urls:
+            wechat_urls.extend(config.wechat_webhook_urls)
+        # 去重并保持顺序
+        self._wechat_urls = list(dict.fromkeys(wechat_urls))
+
+        # 其他渠道的 Webhook URL
         self._feishu_url = getattr(config, 'feishu_webhook_url', None)
         
         # Telegram 配置
@@ -167,9 +175,9 @@ class NotificationService:
             已配置的渠道列表
         """
         channels = []
-        
+
         # 企业微信
-        if self._wechat_url:
+        if self._wechat_urls:
             channels.append(NotificationChannel.WECHAT)
         
         # 飞书
@@ -1025,8 +1033,8 @@ class NotificationService:
     
     def send_to_wechat(self, content: str) -> bool:
         """
-        推送消息到企业微信机器人
-        
+        推送消息到所有配置的企业微信机器人
+
         企业微信 Webhook 消息格式：
         {
             "msgtype": "markdown",
@@ -1034,44 +1042,64 @@ class NotificationService:
                 "content": "Markdown 内容"
             }
         }
-        
-        注意：企业微信 Markdown 限制 4096 字节（非字符），超长内容会自动分批发送
-        可通过环境变量 WECHAT_MAX_BYTES 调整限制值
-        
+
+        注意：
+        - 企业微信 Markdown 限制 4096 字节（非字符），超长内容会自动分批发送
+        - 可通过环境变量 WECHAT_MAX_BYTES 调整限制值
+        - 支持多个 Webhook URL，只要有一个发送成功即返回 True
+
         Args:
             content: Markdown 格式的消息内容
-            
+
         Returns:
-            是否发送成功
+            是否至少一个 URL 发送成功
         """
-        if not self._wechat_url:
+        if not self._wechat_urls:
             logger.warning("企业微信 Webhook 未配置，跳过推送")
             return False
-        
+
         max_bytes = self._wechat_max_bytes  # 从配置读取，默认 4000 字节
-        
-        # 检查字节长度，超长则分批发送
         content_bytes = len(content.encode('utf-8'))
-        if content_bytes > max_bytes:
-            logger.info(f"消息内容超长({content_bytes}字节/{len(content)}字符)，将分批发送")
-            return self._send_wechat_chunked(content, max_bytes)
-        
-        try:
-            return self._send_wechat_message(content)
-        except Exception as e:
-            logger.error(f"发送企业微信消息失败: {e}")
+
+        logger.info(f"准备向 {len(self._wechat_urls)} 个企业微信 Webhook 发送消息")
+
+        success_count = 0
+        for i, webhook_url in enumerate(self._wechat_urls, 1):
+            logger.info(f"发送到企业微信 Webhook #{i}/{len(self._wechat_urls)}")
+
+            try:
+                # 检查字节长度，超长则分批发送
+                if content_bytes > max_bytes:
+                    if i == 1:  # 只在第一个 URL 时打印一次日志
+                        logger.info(f"消息内容超长({content_bytes}字节/{len(content)}字符)，将分批发送")
+                    result = self._send_wechat_chunked(content, max_bytes, webhook_url)
+                else:
+                    result = self._send_wechat_message(content, webhook_url)
+
+                if result:
+                    success_count += 1
+            except Exception as e:
+                logger.error(f"企业微信 Webhook #{i} 发送异常: {e}")
+
+        # 只要有一个成功就算成功
+        if success_count > 0:
+            logger.info(f"企业微信推送完成：{success_count}/{len(self._wechat_urls)} 个 Webhook 成功")
+            return True
+        else:
+            logger.error(f"企业微信推送失败：所有 {len(self._wechat_urls)} 个 Webhook 均失败")
             return False
     
-    def _send_wechat_chunked(self, content: str, max_bytes: int) -> bool:
+    def _send_wechat_chunked(self, content: str, max_bytes: int, webhook_url: str) -> bool:
         """
-        分批发送长消息到企业微信
-        
+        分批发送长消息到企业微信指定 URL
+
         按股票分析块（以 --- 或 ### 分隔）智能分割，确保每批不超过限制
-        
+
         Args:
             content: 完整消息内容
             max_bytes: 单条消息最大字节数
-            
+            webhook_url: 企业微信 Webhook URL
+
         Returns:
             是否全部发送成功
         """
@@ -1093,7 +1121,7 @@ class NotificationService:
             separator = "\n"
         else:
             # 无法智能分割，按字符强制分割
-            return self._send_wechat_force_chunked(content, max_bytes)
+            return self._send_wechat_force_chunked(content, max_bytes, webhook_url)
         
         chunks = []
         current_chunk = []
@@ -1147,7 +1175,7 @@ class NotificationService:
                 chunk_with_marker = chunk
             
             try:
-                if self._send_wechat_message(chunk_with_marker):
+                if self._send_wechat_message(chunk_with_marker, webhook_url):
                     success_count += 1
                     logger.info(f"企业微信第 {i+1}/{total_chunks} 批发送成功")
                 else:
@@ -1161,13 +1189,14 @@ class NotificationService:
         
         return success_count == total_chunks
     
-    def _send_wechat_force_chunked(self, content: str, max_bytes: int) -> bool:
+    def _send_wechat_force_chunked(self, content: str, max_bytes: int, webhook_url: str) -> bool:
         """
         强制按字节分割发送（无法智能分割时的 fallback）
-        
+
         Args:
             content: 完整消息内容
             max_bytes: 单条消息最大字节数
+            webhook_url: 企业微信 Webhook URL
         """
         import time
         
@@ -1198,7 +1227,7 @@ class NotificationService:
             page_marker = f"\n\n📄 *({i+1}/{total_chunks})*" if total_chunks > 1 else ""
             
             try:
-                if self._send_wechat_message(chunk + page_marker):
+                if self._send_wechat_message(chunk + page_marker, webhook_url):
                     success_count += 1
             except Exception as e:
                 logger.error(f"企业微信第 {i+1}/{total_chunks} 批发送异常: {e}")
@@ -1233,31 +1262,44 @@ class NotificationService:
                 truncated = truncated[:-1]
         return ""
     
-    def _send_wechat_message(self, content: str) -> bool:
-        """发送企业微信消息"""
+    def _send_wechat_message(self, content: str, webhook_url: str) -> bool:
+        """
+        发送企业微信消息到指定 URL
+
+        Args:
+            content: Markdown 格式的消息内容
+            webhook_url: 企业微信 Webhook URL
+
+        Returns:
+            是否发送成功
+        """
         payload = {
             "msgtype": "markdown",
             "markdown": {
                 "content": content
             }
         }
-        
-        response = requests.post(
-            self._wechat_url,
-            json=payload,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('errcode') == 0:
-                logger.info("企业微信消息发送成功")
-                return True
+
+        try:
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('errcode') == 0:
+                    logger.info(f"企业微信消息发送成功 (URL: {webhook_url[:50]}...)")
+                    return True
+                else:
+                    logger.error(f"企业微信返回错误 (URL: {webhook_url[:50]}...): {result}")
+                    return False
             else:
-                logger.error(f"企业微信返回错误: {result}")
+                logger.error(f"企业微信请求失败 (URL: {webhook_url[:50]}...): {response.status_code}")
                 return False
-        else:
-            logger.error(f"企业微信请求失败: {response.status_code}")
+        except Exception as e:
+            logger.error(f"企业微信发送异常 (URL: {webhook_url[:50]}...): {e}")
             return False
     
     def send_to_feishu(self, content: str) -> bool:

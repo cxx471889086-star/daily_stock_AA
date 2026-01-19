@@ -60,9 +60,10 @@ class Config:
     serpapi_keys: List[str] = field(default_factory=list)  # SerpAPI Keys
     
     # === 通知配置（可同时配置多个，全部推送）===
-    
-    # 企业微信 Webhook
-    wechat_webhook_url: Optional[str] = None
+
+    # 企业微信 Webhook（支持单个或多个）
+    wechat_webhook_url: Optional[str] = None  # 单个 URL（向后兼容）
+    wechat_webhook_urls: List[str] = field(default_factory=list)  # 多个 URL（逗号分隔）
     
     # 飞书 Webhook
     feishu_webhook_url: Optional[str] = None
@@ -178,7 +179,11 @@ class Config:
         
         serpapi_keys_str = os.getenv('SERPAPI_API_KEYS', '')
         serpapi_keys = [k.strip() for k in serpapi_keys_str.split(',') if k.strip()]
-        
+
+        # 解析企业微信 Webhook URLs（支持多个，逗号分隔）
+        wechat_urls_str = os.getenv('WECHAT_WEBHOOK_URLS', '')
+        wechat_webhook_urls = [u.strip() for u in wechat_urls_str.split(',') if u.strip()]
+
         return cls(
             stock_list=stock_list,
             feishu_app_id=os.getenv('FEISHU_APP_ID'),
@@ -198,6 +203,7 @@ class Config:
             tavily_api_keys=tavily_api_keys,
             serpapi_keys=serpapi_keys,
             wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
+            wechat_webhook_urls=wechat_webhook_urls,
             feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
             telegram_bot_token=os.getenv('TELEGRAM_BOT_TOKEN'),
             telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID'),

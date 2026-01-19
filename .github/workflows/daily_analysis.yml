@@ -63,8 +63,9 @@ jobs:
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           
           # 通知渠道（可同时配置多个，全部推送）
-          # 方式一：企业微信
-          WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
+          # 方式一：企业微信（支持单个或多个）
+          WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}  # 单个 URL（向后兼容）
+          WECHAT_WEBHOOK_URLS: ${{ secrets.WECHAT_WEBHOOK_URLS }}  # 多个 URL（逗号分隔）
           # 方式二：飞书
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           # 方式三：Telegram（需同时配置 Bot Token 和 Chat ID）
