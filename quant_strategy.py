@@ -2,35 +2,33 @@
 双均线 + 量价共振策略
 """
 import yfinance as yf
-import pandas as pd
+import sys
 
-def get_stock_data(symbol):
-    """获取A股数据"""
+def get_data(symbol):
     if symbol.startswith('6'):
-        symbol_yf = f"{symbol}.SS"
+        s = f"{symbol}.SS"
     else:
-        symbol_yf = f"{symbol}.SZ"
-    df = yf.download(symbol_yf, period="3mo", progress=False)
+        s = f"{symbol}.SZ"
+    df = yf.download(s, period="1mo", progress=False)
     return df
 
-def calc_signals(df):
-    """计算买卖信号"""
-    df['ma5'] = df['Close'].rolling(5).mean()
-    df['ma20'] = df['Close'].rolling(20).mean()
-    df['vol_ma5'] = df['Volume'].rolling(5).mean()
-    
-    current = df.iloc[-1]
-    prev = df.iloc[-2]
-    
-    # 金叉
-    golden_cross = (current['ma5'] > current['ma20']) and (prev['ma5'] <= prev['ma20'])
-    # 放量
-    volume_ok = current['Volume'] > current['vol_ma5'] * 1.5
-    # 站稳20日线
-    above_ma20 = current['Close'] > current['ma20']
-    
-    if golden_cross and volume_ok and above_ma20:
-        return "🟢 买入", "金叉+放量+站稳20日线"
+def analyze(symbol):
+    try:
+        df = get_data(symbol)
+        if df.empty:
+            return f"{symbol}: no data"
+        price = float(df['Close'].iloc[-1])
+        ma5 = float(df['Close'].tail(5).mean())
+        signal = "BUY" if price > ma5 else "HOLD"
+        return f"{symbol}: {signal} (price={price:.2f}, MA5={ma5:.2f})"
+    except Exception as e:
+        return f"{symbol}: error - {e}"
+
+if __name__ == "__main__":
+    stocks = sys.argv[1].split(",") if len(sys.argv) > 1 else ["600519"]
+    for s in stocks:
+        print(analyze(s.strip()))
+
     elif current['Close'] < current['ma20']:
         return "🔴 卖出", "跌破20日均线"
     else:
