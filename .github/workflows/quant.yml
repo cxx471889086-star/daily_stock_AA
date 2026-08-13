@@ -17,11 +17,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Show stock list
+      - name: Run quant strategy
         env:
           STOCK_LIST: ${{ secrets.STOCK_LIST }}
         run: |
-          echo "Your stocks: $STOCK_LIST"
+          python quant_strategy.py "$STOCK_LIST"
 
       - name: Push to Feishu
         env:
