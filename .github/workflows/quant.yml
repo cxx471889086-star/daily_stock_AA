@@ -17,9 +17,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install yfinance
-        run: pip install yfinance pandas
-
       - name: Run strategy
         env:
           STOCK_LIST: ${{ secrets.STOCK_LIST }}
