@@ -1,54 +1,34 @@
-"""
-双均线 + 量价共振策略
-"""
 import yfinance as yf
 import sys
 
 def get_data(symbol):
     if symbol.startswith('6'):
-        s = f"{symbol}.SS"
+        s = symbol + '.SS'
     else:
-        s = f"{symbol}.SZ"
-    df = yf.download(s, period="1mo", progress=False)
+        s = symbol + '.SZ'
+    df = yf.download(s, period='1mo', progress=False)
     return df
 
 def analyze(symbol):
     try:
         df = get_data(symbol)
-        if df.empty:
-            return f"{symbol}: no data"
-        price = float(df['Close'].iloc[-1])
-        ma5 = float(df['Close'].tail(5).mean())
-        signal = "BUY" if price > ma5 else "HOLD"
-        return f"{symbol}: {signal} (price={price:.2f}, MA5={ma5:.2f})"
+        if df is None or len(df) < 5:
+            return symbol + ': no data'
+        close_col = df['Close']
+        price = float(close_col.iloc[-1])
+        ma5 = float(close_col.tail(5).mean())
+        if price > ma5:
+            sig = 'BUY'
+        else:
+            sig = 'HOLD'
+        return symbol + ': ' + sig + ' (price=' + str(round(price, 2)) + ', MA5=' + str(round(ma5, 2)) + ')'
     except Exception as e:
-        return f"{symbol}: error - {e}"
+        return symbol + ': error'
 
-if __name__ == "__main__":
-    stocks = sys.argv[1].split(",") if len(sys.argv) > 1 else ["600519"]
-    for s in stocks:
-        print(analyze(s.strip()))
-
-    elif current['Close'] < current['ma20']:
-        return "🔴 卖出", "跌破20日均线"
+if __name__ == '__main__':
+    if len(sys.argv) > 1:
+        stocks = sys.argv[1].split(',')
     else:
-        return "🟡 观望", "无明确信号"
-
-def analyze(symbol):
-    """分析单只股票"""
-    try:
-        df = get_stock_data(symbol)
-        if df.empty:
-            return f"❌ {symbol}: 无数据"
-        signal, reason = calc_signals(df)
-        price = round(df.iloc[-1]['Close'], 2)
-        return f"{signal} {symbol} | 现价:{price} | {reason}"
-    except Exception as e:
-        return f"❌ {symbol}: {str(e)}"
-
-if __name__ == "__main__":
-    import sys
-    stocks = sys.argv[1].split(",") if len(sys.argv) > 1 else ["600519"]
+        stocks = ['600519']
     for s in stocks:
         print(analyze(s.strip()))
-
