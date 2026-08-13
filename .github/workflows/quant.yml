@@ -20,15 +20,6 @@ jobs:
       - name: Install yfinance
         run: pip install yfinance pandas
 
-      - name: Show stock list
-        env:
-          STOCK_LIST: ${{ secrets.STOCK_LIST }}
-        run: |
-          echo "Stocks: $STOCK_LIST"
-          if [ -z "$STOCK_LIST" ]; then
-            echo "STOCK_LIST=600519" >> $GITHUB_ENV
-          fi
-
       - name: Run strategy
         env:
           STOCK_LIST: ${{ secrets.STOCK_LIST }}
@@ -36,12 +27,15 @@ jobs:
           if [ -z "$STOCK_LIST" ]; then
             STOCK_LIST="600519"
           fi
-          python quant_strategy.py "$STOCK_LIST"
+          python quant_strategy.py "$STOCK_LIST" > result.txt 2>&1
+          echo "===== RESULTS ====="
+          cat result.txt
 
       - name: Push to Feishu
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK_URL }}
         run: |
+          RESULT=$(cat result.txt | tr '\n' '|' | sed 's/|/\\n/g')
           curl -X POST "$FEISHU_WEBHOOK" \
             -H "Content-Type: application/json" \
-            -d '{"msg_type":"text","content":{"text":"quant analysis done"}}'
+            -d "{\"msg_type\":\"text\",\"content\":{\"text\":\"📊 量化分析\\n\\n${RESULT}\"}}"
