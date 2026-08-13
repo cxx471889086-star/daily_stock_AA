@@ -9,27 +9,34 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+
       - name: 安装依赖
-        run: |
-          pip install pandas yfinance requests
-      
-      - name: 获取自选股
+        run: pip install yfinance pandas requests
+
+      - name: 读取自选股
+        env:
+          STOCK_LIST: ${{ secrets.STOCK_LIST }}
+        run: echo "当前自选股: $STOCK_LIST"
+
+      - name: 运行量化策略
         env:
           STOCK_LIST: ${{ secrets.STOCK_LIST }}
         run: |
-          echo "当前自选股: $STOCK_LIST"
-      
-      - name: 推送到飞书
+          python quant_strategy.py "$STOCK_LIST" > result.txt
+          cat result.txt
+
+      - name: 推送结果到飞书
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK_URL }}
         run: |
+          RESULT=$(cat result.txt)
           curl -X POST "$FEISHU_WEBHOOK" \
             -H "Content-Type: application/json" \
-            -d '{"msg_type":"text","content":{"text":"每日量化分析 - 策略就绪"}}'
+            -d "{\"msg_type\":\"text\",\"content\":{\"text\":\"📊 量化分析\\n\\n${RESULT}\"}}"
