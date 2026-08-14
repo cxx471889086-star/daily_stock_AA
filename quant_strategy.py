@@ -38,42 +38,43 @@ def analyze(symbol):
     except Exception as e:
         return {'code': symbol, 'error': str(e)[:80]}
 
-def build_card(stocks, time_str):
+def build_text(stocks, time_str):
     valid = [s for s in stocks if 'error' not in s]
     errors = [s for s in stocks if 'error' in s]
+
     buy_count = sum(1 for s in valid if s.get('signal') == 'BUY')
     hold_count = len(valid) - buy_count
     avg_change = sum(s.get('change', 0) for s in valid) / len(valid) if valid else 0
-    elements = []
-    elements.append({"tag": "markdown", "content": f"🟢 **BUY: {buy_count}** | ⚪ **HOLD: {hold_count}** | 平均涨跌: **{avg_change:+.2f}%**"})
-    elements.append({"tag": "hr"})
-    for s in valid:
-        emoji = "🟢" if s.get('signal') == 'BUY' else "⚪"
-        amount_yi = s.get('amount', 0) / 1e8
-        text = f"{emoji} **{s['code']} {s.get('name', '?')}**\n   **{s.get('signal', '?')}** · 现价 **{s.get('price', 0):.2f}** ({s.get('change', 0):+.2f}%)\n   振幅 {s.get('amplitude', 0):.2f}% · 成交额 {amount_yi:.2f}亿"
-        elements.append({"tag": "markdown", "content": text})
-        elements.append({"tag": "hr"})
-    if errors:
-        error_text = "⚠️ **错误股票**\n" + "\n".join([f"- {s['code']}: {s['error']}" for s in errors])
-        elements.append({"tag": "markdown", "content": error_text})
-        elements.append({"tag": "hr"})
-    elements.append({"tag": "markdown", "content": f"<font color='gray'>更新于 {time_str} · 每 10 分钟自动推送</font>"})
-    template = "green" if buy_count > hold_count else ("orange" if hold_count > buy_count else "blue")
-    return {
-        "msg_type": "interactive",
-        "card": {
-            "schema": "2.0",
-            "config": {"compact_width": False},
-            "header": {
-                "template": template,
-                "title": {"tag": "plain_text", "content": f"📊 量化信号 · {time_str}"}
-            },
-            "body": {"elements": elements}
-        }
-    }
+    avg_icon = '📈' if avg_change >= 0 else '📉'
 
-def send(webhook, card):
-    data = json.dumps(card, ensure_ascii=False).encode('utf-8')
+    lines = []
+    lines.append(f'📊 量化信号 · {time_str}')
+    lines.append('')
+    lines.append(f'🟢 BUY: {buy_count} | ⚪ HOLD: {hold_count}')
+    lines.append(f'{avg_icon} 平均涨跌: {avg_change:+.2f}%')
+    lines.append('')
+
+    for s in valid:
+        emoji = '🟢' if s.get('signal') == 'BUY' else '⚪'
+        amount_yi = s.get('amount', 0) / 1e8
+        lines.append('─────────────────────')
+        lines.append(f"{emoji} {s['code']} {s.get('name', '?')}")
+        lines.append(f"   {s.get('signal', '?')} · 现价 {s.get('price', 0):.2f} ({s.get('change', 0):+.2f}%)")
+        lines.append(f"   振幅 {s.get('amplitude', 0):.2f}% · 成交额 {amount_yi:.2f}亿")
+
+    if errors:
+        lines.append('─────────────────────')
+        lines.append('⚠️ 错误股票:')
+        for s in errors:
+            lines.append(f"  - {s['code']}: {s['error']}")
+
+    lines.append('─────────────────────')
+    lines.append(f'更新于 {time_str} · 每 10 分钟自动推送')
+
+    return '\n'.join(lines)
+
+def send(webhook, text):
+    data = json.dumps({'msg_type': 'text', 'content': {'text': text}}).encode('utf-8')
     req = urllib.request.Request(webhook, data=data, headers={'Content-Type': 'application/json'})
     resp = urllib.request.urlopen(req, timeout=15)
     return resp.status, resp.read().decode()
@@ -81,6 +82,7 @@ def send(webhook, card):
 if __name__ == '__main__':
     raw = sys.argv[1] if len(sys.argv) > 1 else '600519'
     webhook = sys.argv[2] if len(sys.argv) > 2 else ''
+
     parts = re.split(r'[\s,;]+', raw)
     seen = set()
     stocks = []
@@ -91,15 +93,18 @@ if __name__ == '__main__':
             stocks.append(p)
     if not stocks:
         stocks = ['600519']
+
     results = [analyze(s) for s in stocks]
     results = [r for r in results if r is not None]
+
     beijing = timezone(timedelta(hours=8))
     now = datetime.now(beijing)
     time_str = now.strftime('%Y-%m-%d %H:%M')
-    card = build_card(results, time_str)
+
+    text = build_text(results, time_str)
+    print(text)
+
     if webhook:
-        status, resp = send(webhook, card)
-        print(f'Feishu status: {status}')
+        status, resp = send(webhook, text)
+        print(f'\nFeishu status: {status}')
         print(f'Response: {resp}')
-    else:
-        print(json.dumps(card, ensure_ascii=False, indent=2))
